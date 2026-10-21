@@ -59,6 +59,7 @@ final class Config {
     static final String TEMPERATURE = "$(prop temperature auto)";
     static final boolean DISABLE_ASSISTANT = $ASSIST;
     static final boolean SHOW_CRYPTO = $CRYPTO;
+    static final String AR2_PIN = "$(prop ar2_pin '')";
 }
 EOF
 

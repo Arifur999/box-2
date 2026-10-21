@@ -123,6 +123,7 @@ final class HomeApps {
         PackageManager pm = c.getPackageManager();
         for (String pkg : shelfPackages(c)) {
             if (items.size() >= MAX_SHELF) break;
+            if (Ar2.hides(pkg)) continue;   // behind AR2's PIN
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
             ResolveInfo ri = pm.resolveActivity(launch, 0);
@@ -169,11 +170,11 @@ final class HomeApps {
         PackageManager pm = c.getPackageManager();
         List<String[]> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String[] d : SHELF) if (launchIntent(pm, d[2]) != null && seen.add(d[2])) out.add(new String[] {d[2], d[1]});
+        for (String[] d : SHELF) if (launchIntent(pm, d[2]) != null && !Ar2.hides(d[2]) && seen.add(d[2])) out.add(new String[] {d[2], d[1]});
         List<String[]> more = new ArrayList<>();
         for (ResolveInfo ri : launchable(pm)) {
             String pkg = ri.activityInfo.packageName;
-            if (pkg.equals(c.getPackageName()) || HIDDEN.contains(pkg) || !seen.add(pkg)) continue;
+            if (pkg.equals(c.getPackageName()) || HIDDEN.contains(pkg) || Ar2.hides(pkg) || !seen.add(pkg)) continue;
             more.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
         }
         Collections.sort(more, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
@@ -333,7 +334,7 @@ final class HomeApps {
         Set<String> seen = new HashSet<>();
         for (ResolveInfo ri : launchable(pm)) {
             String pkg = ri.activityInfo.packageName;
-            if (skip.contains(pkg) || !seen.add(pkg)) continue;
+            if (skip.contains(pkg) || Ar2.hides(pkg) || !seen.add(pkg)) continue;
             Item it = new Item();
             it.kind = APP;
             it.pkg = pkg;

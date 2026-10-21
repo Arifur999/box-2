@@ -105,6 +105,11 @@ final class Prefs {
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
 
+    // MARK: - AR2
+
+    static String ar2App() { return sp().getString("ar2App", ""); }
+    static void setAr2App(String pkg) { put("ar2App", pkg); }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

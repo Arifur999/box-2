@@ -142,7 +142,7 @@ public class SettingsActivity extends Activity {
         private final List<String[]> shelfRows = new ArrayList<>();
         private final List<String> shelfOrder = new ArrayList<>();
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
-        private static final int PICK_CITY = 0;
+        private static final int PICK_CITY = 0, PICK_AR2 = -1;
         private final List<String[]> cities = new ArrayList<>();
         private String cityStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
@@ -617,6 +617,9 @@ public class SettingsActivity extends Activity {
                             if (screen == PICKER && pickFor == PICK_CITY) {
                                 focus = CITY_ROW;
                                 screen = HOME_SETTINGS;
+                            } else if (screen == PICKER && pickFor == PICK_AR2) {
+                                focus = AR2_ROW;
+                                screen = HOME_SETTINGS;
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
@@ -639,7 +642,7 @@ public class SettingsActivity extends Activity {
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, ad blocker, weather, city, quotes, then one row per coin. */
-        private static final int AD_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, QUOTES_ROW = 6, COIN_ROWS = 7;
+        private static final int AD_ROW = 3, WEATHER_ROW = 4, CITY_ROW = 5, AR2_ROW = 6, QUOTES_ROW = 7, COIN_ROWS = 8;
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -653,6 +656,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Bloqueador de anúncios (AdGuard)", "Ad blocker (AdGuard)"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
+            l.add(Ui.tr("App do AR2 (com senha)", "AR2 app (PIN)"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -674,6 +678,8 @@ public class SettingsActivity extends Activity {
             v[AD_ROW] = busy() ? Ui.tr("Aguarde…", "Please wait…") : onOff(state.optBoolean("adblock"));
             v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
+            int ar2 = appPkgs.indexOf(Prefs.ar2App());
+            v[AR2_ROW] = Prefs.ar2App().isEmpty() ? "—" : ar2 >= 0 ? appLabels.get(ar2) : Ui.tr("Não instalado", "Not installed");
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -753,6 +759,7 @@ public class SettingsActivity extends Activity {
                     return;
                 case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
+                case AR2_ROW: return;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
                     if (!Prefs.quotes()) return;
@@ -906,6 +913,9 @@ public class SettingsActivity extends Activity {
             if (which == PICK_CITY) {
                 for (String[] city : cities) pickLabels.add(city[0]);
                 pickCurrent = -1;
+            } else if (which == PICK_AR2) {
+                pickLabels.addAll(appLabels);
+                pickCurrent = appPkgs.indexOf(Prefs.ar2App());
             } else {
                 pickLabels.addAll(appLabels);
                 pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[which - 1]));
@@ -920,7 +930,7 @@ public class SettingsActivity extends Activity {
         /** A long list (the apps): nine rows at a time, the one in use checked. */
         private void drawPicker(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            String title = pickFor == PICK_CITY ? Ui.tr("Cidade", "City") : keyLabels()[pickFor - 1];
+            String title = pickFor == PICK_CITY ? Ui.tr("Cidade", "City") : pickFor == PICK_AR2 ? Ar2.NAME : keyLabels()[pickFor - 1];
             c.drawText(title, LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
@@ -962,11 +972,12 @@ public class SettingsActivity extends Activity {
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             String error = state.optString("error");
             if (!keys && focus == AD_ROW && !error.isEmpty() && !busy()) {
                 c.drawText(TextUtils.ellipsize(error, notice, (LIST_R - LIST_X - 60) * k, TextUtils.TruncateAt.END).toString(),
-                        LIST_X * k + 30 * k, hy + 38 * k, warn);
+                        LIST_X * k + 30 * k, hy, warn);
+            } else {
+                c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             }
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video e Google Play: a própria TV controla esses botões.",
@@ -995,6 +1006,10 @@ public class SettingsActivity extends Activity {
                 HomeData.get(c).settingsChanged();
                 focus = CITY_ROW;
                 screen = HOME_SETTINGS;
+            } else if (screen == PICKER && pickFor == PICK_AR2) {
+                Prefs.setAr2App(appPkgs.get(pickScroll + focus));
+                focus = AR2_ROW;
+                screen = HOME_SETTINGS;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
                 Prefs.setKeyApp(Prefs.KEYS[pickFor - 1], appPkgs.get(at));
@@ -1009,6 +1024,14 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
                 askCity();
                 return;
+            } else if (screen == HOME_SETTINGS && focus == AR2_ROW) {
+                // Changing what AR2 opens needs the PIN too, or anyone could swap it and get the hidden app back.
+                Ar2.askPin(activity, Ar2.NAME, () -> {
+                    loadApps();
+                    openPicker(PICK_AR2);
+                    invalidate();
+                });
+                return;
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);
                 invalidate();
@@ -1021,6 +1044,7 @@ public class SettingsActivity extends Activity {
                 pause();
                 activity.showPreview();
             } else if (focus == 2) {
+                loadApps();   // the name of AR2's app
                 screen = HOME_SETTINGS;
                 focus = 0;
             } else if (focus == 3) {
