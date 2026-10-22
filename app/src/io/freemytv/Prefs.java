@@ -107,8 +107,9 @@ final class Prefs {
 
     // MARK: - AR2
 
-    static String ar2App() { return sp().getString("ar2App", ""); }
-    static void setAr2App(String pkg) { put("ar2App", pkg); }
+    /** The app AR2 opens and hides; "" = AR2's own browser (the default). A new key: AR2 used to open an app only. */
+    static String ar2App() { return sp().getString("ar2Target", ""); }
+    static void setAr2App(String pkg) { put("ar2Target", pkg); }
 
     // MARK: - Shelf
 

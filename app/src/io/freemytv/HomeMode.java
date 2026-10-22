@@ -353,6 +353,20 @@ final class HomeMode {
             // back. The TV's first setup usually saved the network: then stop here, before anything changes.
             Set<String> owners = wifiOwners(adb);
             boolean setupHome = setupIsHome(adb);
+            Set<String> blockers = new HashSet<>();
+            if (setupHome) blockers.add(GOOGLE_SETUP);
+            if (!home.isEmpty()) blockers.add(packageOf(home));
+            blockers.retainAll(owners);
+            if (!blockers.isEmpty()) {
+                // Old networks from the first setup that are out of range now (Settings can't show them, so the
+                // person can't forget them there): forget those here. Never the one the TV is on, never one in range.
+                busy(c, Ui.tr("Removendo redes Wi-Fi antigas…", "Removing old Wi-Fi networks…"));
+                List<String> forgotten = forgetOldNetworks(adb, blockers);
+                if (!forgotten.isEmpty()) {
+                    AppLog.w("forgot old Wi-Fi networks from " + blockers + ": " + forgotten);
+                    owners = wifiOwners(adb);
+                }
+            }
             if ((setupHome && owners.contains(GOOGLE_SETUP)) || owners.contains(packageOf(home))) {
                 throw new IOException(Ui.tr("a configuração inicial da TV salvou o Wi-Fi, e desligá-la apagaria essas redes. "
                         + "Em Configurações → Rede e Internet, esqueça a rede e conecte de novo (as fora de alcance não aparecem "
@@ -651,6 +665,77 @@ final class HomeMode {
         Matcher m = Pattern.compile("cname=([\\w.]+)").matcher(adb.shell("dumpsys wifi | grep -o 'cname=[^ ]*'"));
         while (m.find()) owners.add(m.group(1));
         return owners;
+    }
+
+    private static final Pattern SAVED_BLOCK = Pattern.compile("(?:^|\\s)ID: (\\d+) SSID: (\"(?:[^\"\\\\]|\\\\.)*\"|\\S+) ");
+    private static final Pattern CURRENT_WIFI = Pattern.compile("SSID: (\"(?:[^\"\\\\]|\\\\.)*\"|[^,\\n]*), BSSID: [^\\n]*?Net ID: (-?\\d+)");
+    private static final Pattern LISTED = Pattern.compile("(?m)^\\s*(\\d+)\\s+(.*?)\\s+\\S+\\s*$");
+
+    /**
+     * Forgets the saved Wi-Fi networks that one of `owners` saved and that are out of range now: Settings doesn't list
+     * those, so the person can't forget them there. Careful on purpose: nothing is forgotten unless the TV is on Wi-Fi
+     * right now and a fresh scan sees that network; never the network the TV is on; never one the scan sees (Settings
+     * shows those, and the person forgets and reconnects them there). Returns the names it forgot.
+     */
+    private static List<String> forgetOldNetworks(Adb adb, Set<String> owners) {
+        List<String> forgotten = new ArrayList<>();
+        try {
+            String dump = adb.shell("dumpsys wifi");
+            Set<String> currentIds = new HashSet<>();
+            Set<String> currentNames = new HashSet<>();
+            Matcher cur = CURRENT_WIFI.matcher(dump);
+            while (cur.find()) {
+                int id = Integer.parseInt(cur.group(2));
+                String name = unquote(cur.group(1));
+                if (id >= 0 && !name.isEmpty() && !name.equals("<unknown ssid>")) {
+                    currentIds.add(String.valueOf(id));
+                    currentNames.add(name);
+                }
+            }
+            if (currentIds.isEmpty()) return forgotten;   // not on Wi-Fi (or can't tell): touch nothing
+
+            // Saved networks: id -> name, from Android's own list.
+            java.util.Map<String, String> saved = new java.util.HashMap<>();
+            Matcher l = LISTED.matcher(adb.shell("cmd wifi list-networks"));
+            while (l.find()) saved.put(l.group(1), unquote(l.group(2)));
+            if (saved.isEmpty()) return forgotten;
+
+            // What a fresh scan sees. If it doesn't see the network the TV is on, the scan can't be trusted: stop.
+            String scan = adb.shell("cmd wifi start-scan; sleep 6; cmd wifi list-scan-results");
+            boolean sane = false;
+            for (String name : currentNames) if (scan.contains(name)) sane = true;
+            if (!sane) return forgotten;
+
+            Matcher b = SAVED_BLOCK.matcher(dump);
+            List<int[]> spans = new ArrayList<>();
+            List<String[]> heads = new ArrayList<>();
+            while (b.find()) {
+                spans.add(new int[] {b.start(), b.end()});
+                heads.add(new String[] {b.group(1), unquote(b.group(2))});
+            }
+            Set<String> done = new HashSet<>();
+            for (int i = 0; i < spans.size(); i++) {
+                String id = heads.get(i)[0], name = heads.get(i)[1];
+                int end = i + 1 < spans.size() ? spans.get(i + 1)[0] : Math.min(dump.length(), spans.get(i)[1] + 6000);
+                Matcher owner = Pattern.compile("cname=([\\w.]+)").matcher(dump.substring(spans.get(i)[1], end));
+                if (!owner.find() || !owners.contains(owner.group(1))) continue;
+                if (done.contains(id) || currentIds.contains(id) || currentNames.contains(name)) continue;
+                if (!name.equals(saved.get(id))) continue;   // not the same network in Android's list: leave it
+                if (name.isEmpty() || scan.contains(name)) continue;   // in range: Settings shows it
+                String out = adb.shell("cmd wifi forget-network " + id).trim();
+                AppLog.w("forget Wi-Fi " + id + " (" + name + "): " + out);
+                done.add(id);
+                forgotten.add(name);
+            }
+        } catch (IOException | RuntimeException e) {
+            AppLog.w("could not check old Wi-Fi networks: " + e);
+        }
+        return forgotten;
+    }
+
+    private static String unquote(String s) {
+        s = s.trim();
+        return s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"") ? s.substring(1, s.length() - 1) : s;
     }
 
     /** The recorded home screen of the TV, as {@link #realHome}. */

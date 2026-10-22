@@ -10,9 +10,10 @@ import android.widget.EditText;
 import android.widget.Toast;
 
 /**
- * AR2: a tab next to Explore, Movies and Shows that opens one app picked in Home Settings, behind a PIN
- * (ar2_pin in config.properties, kept out of git). The app it opens is hidden from All Apps and the shelf, so the
- * tab is the way in. Five wrong PINs lock it for a minute.
+ * AR2: a tab next to Explore, Movies and Shows, behind a PIN (ar2_pin in config.properties, kept out of git). It opens
+ * AR2's own browser (BrowserActivity: one Chrome-style tab with its ad blocker always on), or, if one is picked in
+ * Home Settings, an app, which is then hidden from All Apps and the shelf so the tab is the way in. Five wrong PINs
+ * lock it for a minute.
  */
 final class Ar2 {
     private Ar2() {}
@@ -84,16 +85,12 @@ final class Ar2 {
         }
     }
 
-    /** The tab: PIN, then the app. */
+    /** The tab: PIN, then AR2's browser (or the app picked in Home Settings instead). */
     static void open(Activity a) {
         String pkg = app();
-        if (pkg.isEmpty()) {
-            toast(a, Ui.tr("Escolha o app do AR2 em Free My TV → Ajustes do Início.",
-                    "Pick AR2's app in Free My TV → Home Settings."));
-            return;
-        }
         askPin(a, NAME, () -> {
-            Intent intent = HomeApps.launchIntent(a.getPackageManager(), pkg);
+            Intent intent = pkg.isEmpty() ? new Intent(a, BrowserActivity.class)
+                    : HomeApps.launchIntent(a.getPackageManager(), pkg);
             if (intent == null) {
                 toast(a, Ui.tr("O app do AR2 não está instalado.", "AR2's app isn't installed."));
                 return;
@@ -101,7 +98,7 @@ final class Ar2 {
             try {
                 a.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED));
             } catch (RuntimeException e) {
-                toast(a, Ui.tr("Não deu para abrir o app do AR2.", "Couldn't open AR2's app."));
+                toast(a, Ui.tr("Não deu para abrir o AR2.", "Couldn't open AR2."));
             }
         });
     }

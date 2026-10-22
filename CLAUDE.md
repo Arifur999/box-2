@@ -39,11 +39,13 @@ before you do it, and let them do the taps on the TV.
    (*Free My TV* → *Remote Buttons* picks what each opens); *Original* turns it off.
 8. **They switch on the TV:** *Free My TV* → *Home Screen* → *Free My TV*. The app uses the TV's own ADB on
    127.0.0.1 with its own key, so the TV asks once more to allow debugging. Don't switch modes from the computer.
-   If the TV's Wi-Fi was saved during its first setup, the switch stops before changing anything and asks them to
-   forget the network and connect again in Settings (Network & Internet); then the switch goes through. Saved
-   networks out of range don't show in Settings: find the ones with `cname=com.google.android.tungsten.setupwraith`
-   in `adb shell dumpsys wifi` (each block starts with its `ID:`), and with their OK remove them with
-   `adb shell cmd wifi forget-network <id>`.
+   If the TV's Wi-Fi was saved during its first setup, the switch first forgets, by itself, the setup's saved
+   networks that are out of range (Settings can't show those): never the one the TV is on, never one a fresh scan
+   sees, and nothing at all when it can't tell (`forgetOldNetworks` in `HomeMode`). If the setup still owns a
+   network after that, the switch stops before changing anything and asks them to forget the network and connect
+   again in Settings (Network & Internet); then the switch goes through. By hand: find the blocks with
+   `cname=com.google.android.tungsten.setupwraith` in `adb shell dumpsys wifi` (each starts with its `ID:`), and
+   with their OK remove them with `adb shell cmd wifi forget-network <id>`.
 9. **Check:** `adb logcat -s FreeMyTV` shows what the switch did.
 
 ## Installing it on an LG TV (webOS)

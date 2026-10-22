@@ -679,7 +679,7 @@ public class SettingsActivity extends Activity {
             v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             int ar2 = appPkgs.indexOf(Prefs.ar2App());
-            v[AR2_ROW] = Prefs.ar2App().isEmpty() ? "—" : ar2 >= 0 ? appLabels.get(ar2) : Ui.tr("Não instalado", "Not installed");
+            v[AR2_ROW] = Prefs.ar2App().isEmpty() ? browserLabel() : ar2 >= 0 ? appLabels.get(ar2) : Ui.tr("Não instalado", "Not installed");
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -907,6 +907,10 @@ public class SettingsActivity extends Activity {
                     "OK pone o quita del estante (hasta " + HomeApps.MAX_SHELF + "). ← → cambian el orden."), LIST_X * k + 30 * k, hy, hint);
         }
 
+        private String browserLabel() {
+            return Ui.tr("Navegador (sem anúncios)", "Browser (ad-free)");
+        }
+
         private void openPicker(int which) {
             pickFor = which;
             pickLabels.clear();
@@ -914,8 +918,9 @@ public class SettingsActivity extends Activity {
                 for (String[] city : cities) pickLabels.add(city[0]);
                 pickCurrent = -1;
             } else if (which == PICK_AR2) {
+                pickLabels.add(browserLabel());   // first: AR2's own browser, then the apps
                 pickLabels.addAll(appLabels);
-                pickCurrent = appPkgs.indexOf(Prefs.ar2App());
+                pickCurrent = Prefs.ar2App().isEmpty() ? 0 : appPkgs.indexOf(Prefs.ar2App()) + 1;
             } else {
                 pickLabels.addAll(appLabels);
                 pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[which - 1]));
@@ -1007,7 +1012,8 @@ public class SettingsActivity extends Activity {
                 focus = CITY_ROW;
                 screen = HOME_SETTINGS;
             } else if (screen == PICKER && pickFor == PICK_AR2) {
-                Prefs.setAr2App(appPkgs.get(pickScroll + focus));
+                int at = pickScroll + focus;
+                Prefs.setAr2App(at == 0 ? "" : appPkgs.get(at - 1));
                 focus = AR2_ROW;
                 screen = HOME_SETTINGS;
             } else if (screen == PICKER) {

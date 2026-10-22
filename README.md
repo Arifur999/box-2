@@ -144,7 +144,7 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
   - Google Assistant, only with `disable_assistant=true`.
 - On TCL TVs, the remote's Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons. Pick what each one opens in *Free My TV* → *Remote Buttons*; *Original* turns the service off. On Vestel-made TVs (F&U and other store brands) the same goes for the Netflix button.
 - Picture, sound, inputs, remote pairing, Google services and the Play Store are on a protected list, checked before every change.
-- Apps that saved a Wi-Fi network are never turned off, since Android would erase the network. If the TV's first setup saved yours, the switch asks you to forget the network and connect again in Settings first (saved networks out of range don't show there; Claude Code can remove them).
+- Apps that saved a Wi-Fi network are never turned off, since Android would erase the network. If the TV's first setup saved networks, the switch forgets the out-of-range ones itself (never the one the TV is on, never one in range); if it saved the one you use, it asks you to forget it and connect again in Settings first.
 
 ## Any TV
 
@@ -216,3 +216,12 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 ## License
 
 [MIT](LICENSE). Fork it, change it, ship it.
+
+## AR2's browser
+
+The AR2 tab (behind its PIN) opens a built-in browser: one Chrome-style tab with an address bar, made for the remote.
+The arrows move a mouse pointer (hold to go faster), OK clicks, holding an arrow at the edge of the page scrolls it
+(CH +/− scroll a page at a time), Back goes back, and play/pause works on videos. Its ad blocker (the AdGuard DNS
+filter, plus pop-up and redirect blocking) is always on and updates itself weekly; it's separate from the TV-wide
+AdGuard switch in Home Settings. `ar2_url` in `config.properties` is the first page it opens; Menu → "Set this page
+as AR2's home page" changes it on the TV. Home Settings → AR2 can still pick an app instead.

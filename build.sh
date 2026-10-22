@@ -60,6 +60,7 @@ final class Config {
     static final boolean DISABLE_ASSISTANT = $ASSIST;
     static final boolean SHOW_CRYPTO = $CRYPTO;
     static final String AR2_PIN = "$(prop ar2_pin '')";
+    static final String AR2_URL = "$(prop ar2_url '')";
 }
 EOF
 
