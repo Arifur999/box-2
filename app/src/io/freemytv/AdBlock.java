@@ -169,6 +169,7 @@ final class AdBlock {
                 write(new File(app.getFilesDir(), "adblock-allow.txt"), exceptions);
                 write(f, domains);
                 touch(stamp);
+                use(readAll(new FileInputStream(f)), new HashSet<>(exceptions));   // in use right away
                 AppLog.w("ad block list updated: " + domains.size() + " domains");
             } catch (IOException | RuntimeException e) {
                 AppLog.w("ad block update: " + e);

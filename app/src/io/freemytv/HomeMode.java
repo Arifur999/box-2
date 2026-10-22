@@ -668,7 +668,7 @@ final class HomeMode {
     }
 
     private static final Pattern SAVED_BLOCK = Pattern.compile("(?:^|\\s)ID: (\\d+) SSID: (\"(?:[^\"\\\\]|\\\\.)*\"|\\S+) ");
-    private static final Pattern CURRENT_WIFI = Pattern.compile("SSID: (\"(?:[^\"\\\\]|\\\\.)*\"|[^,\\n]*), BSSID: [^\\n]*?Net ID: (-?\\d+)");
+    private static final Pattern CURRENT_WIFI = Pattern.compile("SSID: (\"(?:[^\"\\\\]|\\\\.)*\"|[^,\\n]*), BSSID: ([0-9a-fA-F:]{17})[^\\n]*?Net ID: (-?\\d+)");
     private static final Pattern LISTED = Pattern.compile("(?m)^\\s*(\\d+)\\s+(.*?)\\s+\\S+\\s*$");
 
     /**
@@ -683,13 +683,17 @@ final class HomeMode {
             String dump = adb.shell("dumpsys wifi");
             Set<String> currentIds = new HashSet<>();
             Set<String> currentNames = new HashSet<>();
+            Set<String> currentBssids = new HashSet<>();
             Matcher cur = CURRENT_WIFI.matcher(dump);
             while (cur.find()) {
-                int id = Integer.parseInt(cur.group(2));
+                int id = Integer.parseInt(cur.group(3));
                 String name = unquote(cur.group(1));
                 if (id >= 0 && !name.isEmpty() && !name.equals("<unknown ssid>")) {
                     currentIds.add(String.valueOf(id));
                     currentNames.add(name);
+                    if (!cur.group(2).equals("00:00:00:00:00:00") && !cur.group(2).equals("02:00:00:00:00:00")) {
+                        currentBssids.add(cur.group(2).toLowerCase(java.util.Locale.ROOT));
+                    }
                 }
             }
             if (currentIds.isEmpty()) return forgotten;   // not on Wi-Fi (or can't tell): touch nothing
@@ -700,10 +704,11 @@ final class HomeMode {
             while (l.find()) saved.put(l.group(1), unquote(l.group(2)));
             if (saved.isEmpty()) return forgotten;
 
-            // What a fresh scan sees. If it doesn't see the network the TV is on, the scan can't be trusted: stop.
+            // What a fresh scan sees. It must show the access point the TV is on (its BSSID), or it can't be trusted.
             String scan = adb.shell("cmd wifi start-scan; sleep 6; cmd wifi list-scan-results");
+            String scanLower = scan.toLowerCase(java.util.Locale.ROOT);
             boolean sane = false;
-            for (String name : currentNames) if (scan.contains(name)) sane = true;
+            for (String bssid : currentBssids) if (scanLower.contains(bssid)) sane = true;
             if (!sane) return forgotten;
 
             Matcher b = SAVED_BLOCK.matcher(dump);
@@ -711,13 +716,18 @@ final class HomeMode {
             List<String[]> heads = new ArrayList<>();
             while (b.find()) {
                 spans.add(new int[] {b.start(), b.end()});
-                heads.add(new String[] {b.group(1), unquote(b.group(2))});
+                // Only names stored in quotes: an unquoted one is hex (not UTF-8) and the scan prints it decoded.
+                heads.add(new String[] {b.group(1), b.group(2).startsWith("\"") ? unquote(b.group(2)) : ""});
             }
             Set<String> done = new HashSet<>();
             for (int i = 0; i < spans.size(); i++) {
                 String id = heads.get(i)[0], name = heads.get(i)[1];
                 int end = i + 1 < spans.size() ? spans.get(i + 1)[0] : Math.min(dump.length(), spans.get(i)[1] + 6000);
-                Matcher owner = Pattern.compile("cname=([\\w.]+)").matcher(dump.substring(spans.get(i)[1], end));
+                int blank = dump.indexOf("\n\n", spans.get(i)[1]);
+                if (blank >= 0 && blank < end) end = blank;   // this network's own lines only
+                String block = dump.substring(spans.get(i)[1], end);
+                if (block.contains("HIDDEN: true")) continue;   // hidden networks never show in a scan: can't tell
+                Matcher owner = Pattern.compile("cname=([\\w.]+)").matcher(block);
                 if (!owner.find() || !owners.contains(owner.group(1))) continue;
                 if (done.contains(id) || currentIds.contains(id) || currentNames.contains(name)) continue;
                 if (!name.equals(saved.get(id))) continue;   // not the same network in Android's list: leave it
@@ -725,7 +735,7 @@ final class HomeMode {
                 String out = adb.shell("cmd wifi forget-network " + id).trim();
                 AppLog.w("forget Wi-Fi " + id + " (" + name + "): " + out);
                 done.add(id);
-                forgotten.add(name);
+                if (out.toLowerCase(java.util.Locale.ROOT).contains("success")) forgotten.add(name);
             }
         } catch (IOException | RuntimeException e) {
             AppLog.w("could not check old Wi-Fi networks: " + e);

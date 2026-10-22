@@ -122,9 +122,15 @@ public class BrowserActivity extends Activity {
         if (start.isEmpty()) {
             main.postDelayed(this::askAddress, 400);
         } else {
-            web.loadUrl(start);
+            open(start);
         }
         main.postDelayed(keepAwake, 15_000);
+    }
+
+    /** Every page load goes through here: the app allows no plain-HTTP traffic, so http:// becomes https://. */
+    private void open(String target) {
+        if (web == null || target == null || target.isEmpty()) return;
+        web.loadUrl(target.replaceFirst("(?i)^http://", "https://"));
     }
 
     private SharedPreferences prefs() {
@@ -261,7 +267,7 @@ public class BrowserActivity extends Activity {
             web = new WebView(BrowserActivity.this);
             setUp(web);
             webHolder.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            if (!last.isEmpty()) web.loadUrl(last);
+            if (!last.isEmpty()) open(last);
             return true;
         }
     }
@@ -306,6 +312,11 @@ public class BrowserActivity extends Activity {
                     if (u != null && !u.startsWith("about:")) decide(u);
                 }
 
+                @Override public boolean onRenderProcessGone(WebView v, RenderProcessGoneDetail detail) {
+                    done[0] = true;
+                    return true;   // never take the app down with it
+                }
+
                 private void decide(String target) {
                     if (done[0]) return;
                     done[0] = true;
@@ -313,11 +324,13 @@ public class BrowserActivity extends Activity {
                     String host = t.getHost();
                     String here = Uri.parse(web.getUrl() == null ? "" : web.getUrl()).getHost();
                     boolean web2 = "https".equals(t.getScheme()) || "http".equals(t.getScheme());
-                    if (web2 && !AdBlock.blocked(host) && sameSite(host, here)) {
-                        web.loadUrl(target);
-                    } else {
+                    if (!web2 || AdBlock.blocked(host)) {
                         countBlocked();
                         toast(Ui.tr("Pop-up bloqueado", "Pop-up blocked") + (host == null ? "" : ": " + host));
+                    } else if (sameSite(host, here)) {
+                        open(target);
+                    } else {
+                        askToOpen(target, host);   // another site after a click: the person decides
                     }
                     main.post(temp::destroy);
                 }
@@ -350,6 +363,13 @@ public class BrowserActivity extends Activity {
         }
 
         @Override public void onPermissionRequest(PermissionRequest request) {
+            // Protected video (Widevine) yes, so paid streams play; camera and microphone never.
+            for (String r : request.getResources()) {
+                if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID.equals(r)) {
+                    request.grant(new String[] {PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID});
+                    return;
+                }
+            }
             request.deny();
         }
 
@@ -441,9 +461,15 @@ public class BrowserActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_DOWN_RIGHT:
                 arrow(code, dn);
                 return true;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                // Enter from a keyboard (or the on-screen one) submits the field; a remote's OK sent as Enter clicks.
+                if ((e.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0
+                        || (e.getDevice() != null && e.getDevice().getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)) {
+                    return super.dispatchKeyEvent(e);
+                }
+                // fall through
+            case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_BUTTON_A:
             case KeyEvent.KEYCODE_BUTTON_SELECT:
                 if (dn && e.getRepeatCount() == 0) {
@@ -660,7 +686,7 @@ public class BrowserActivity extends Activity {
     private void endDrag(long now) {
         if (!dragging) return;
         dragging = false;
-        touch(MotionEvent.ACTION_UP, dragDown, Math.max(now, dragLast + 130), dragX, dragY);
+        touch(MotionEvent.ACTION_UP, dragDown, Math.max(now, dragLast), dragX, dragY);
     }
 
     private void touch(int action, long down, long time, float x, float y) {
@@ -710,7 +736,7 @@ public class BrowserActivity extends Activity {
         d.setSource(InputDevice.SOURCE_TOUCHSCREEN);
         target.dispatchTouchEvent(d);
         d.recycle();
-        MotionEvent u = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0);
+        MotionEvent u = MotionEvent.obtain(t, t, MotionEvent.ACTION_UP, x, y, 0);
         u.setSource(InputDevice.SOURCE_TOUCHSCREEN);
         target.dispatchTouchEvent(u);
         u.recycle();
@@ -781,8 +807,19 @@ public class BrowserActivity extends Activity {
         } else {
             target = "https://www.google.com/search?q=" + Uri.encode(s);
         }
-        web.loadUrl(target);
+        open(target);
         web.requestFocus();
+    }
+
+    /** A link that wants a new tab on another site: open it here only if the person says so (ads do this a lot). */
+    private void askToOpen(String target, String host) {
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(Ui.tr("Abrir outro site?", "Open another site?"))
+                .setMessage(host + Ui.tr("\n\nSe você não clicou num link para ele, é anúncio: cancele.",
+                        "\n\nIf you didn't click a link to it, it's an ad: cancel."))
+                .setPositiveButton(Ui.tr("Abrir", "Open"), (d, w) -> open(target))
+                .setNegativeButton(Ui.tr("Cancelar", "Cancel"), (d, w) -> countBlocked())
+                .show();
     }
 
     private void menu() {
@@ -835,9 +872,23 @@ public class BrowserActivity extends Activity {
         }
     }
 
+    /** A key's release can go to a dialog or get lost (Home, a remote that drops): never keep moving after that. */
+    private void releaseKeys() {
+        left = right = up = down = false;
+        okDown = false;
+        if (pointer != null) pointer.press(false);
+        endDrag(SystemClock.uptimeMillis());
+    }
+
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (!focus) releaseKeys();
+    }
+
     @Override protected void onPause() {
+        releaseKeys();
         if (web != null && web.getUrl() != null && !web.getUrl().startsWith("about:")) {
-            prefs().edit().putString("last", web.getUrl()).apply();
+            prefs().edit().putString("last", web.getUrl()).commit();   // commit: the process may end right after
         }
         super.onPause();
     }
@@ -859,6 +910,8 @@ public class BrowserActivity extends Activity {
             web = null;
         }
         super.onDestroy();
+        // Closed for good: give the TV its memory back (this process only runs AR2's browser).
+        if (isFinishing()) main.postAtFrontOfQueue(() -> android.os.Process.killProcess(android.os.Process.myPid()));
     }
 
     // MARK: - The bar: one tab, then back / forward / reload / home, the address and the menu
@@ -872,6 +925,7 @@ public class BrowserActivity extends Activity {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint tabText, urlHost, urlRest, small, badgeText;
+        private android.text.TextPaint tabFit, hostFit, restFit;
         private final RectF r = new RectF();
         private final Path path = new Path();
 
@@ -886,6 +940,9 @@ public class BrowserActivity extends Activity {
             stroke.setStrokeCap(Paint.Cap.ROUND);
             stroke.setStrokeJoin(Paint.Join.ROUND);
             setWillNotDraw(false);
+            tabFit = new android.text.TextPaint(tabText);
+            hostFit = new android.text.TextPaint(urlHost);
+            restFit = new android.text.TextPaint(urlRest);
         }
 
         // Button centers on the toolbar row
@@ -919,7 +976,7 @@ public class BrowserActivity extends Activity {
                 case RELOAD: if (progress < 100) web.stopLoading(); else web.reload(); break;
                 case HOME:
                     String h = home();
-                    if (h.isEmpty()) askAddress(); else web.loadUrl(h);
+                    if (h.isEmpty()) askAddress(); else open(h);
                     break;
                 case ADDRESS: askAddress(); break;
                 case SHIELD:
@@ -967,7 +1024,7 @@ public class BrowserActivity extends Activity {
             }
             String t = !title.isEmpty() ? title : url.isEmpty() ? Ui.tr("Nova guia", "New tab") : host(url);
             float textMax = tr - iconX - 24 * k - 50 * k;
-            c.drawText(TextUtils.ellipsize(t, new android.text.TextPaint(tabText), textMax, TextUtils.TruncateAt.END).toString(),
+            c.drawText(TextUtils.ellipsize(t, tabFit, textMax, TextUtils.TruncateAt.END).toString(),
                     iconX + 22 * k, midY + Ui.halfCap(tabText), tabText);
             float cx = tr - 26 * k;
             if (hovered == CLOSE) {
@@ -1014,11 +1071,11 @@ public class BrowserActivity extends Activity {
                 String host = u.getHost() == null ? url : u.getHost();
                 String rest = url.substring(Math.min(url.length(), url.indexOf(host) + host.length()));
                 if (rest.equals("/")) rest = "";
-                String shownHost = TextUtils.ellipsize(host, new android.text.TextPaint(urlHost), maxW, TextUtils.TruncateAt.END).toString();
+                String shownHost = TextUtils.ellipsize(host, hostFit, maxW, TextUtils.TruncateAt.END).toString();
                 c.drawText(shownHost, textX, cy + Ui.halfCap(urlHost), urlHost);
                 float hw = urlHost.measureText(shownHost);
                 if (hw < maxW && !rest.isEmpty()) {
-                    c.drawText(TextUtils.ellipsize(rest, new android.text.TextPaint(urlRest), maxW - hw, TextUtils.TruncateAt.END).toString(),
+                    c.drawText(TextUtils.ellipsize(rest, restFit, maxW - hw, TextUtils.TruncateAt.END).toString(),
                             textX + hw, cy + Ui.halfCap(urlRest), urlRest);
                 }
             }
